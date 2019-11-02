@@ -1,0 +1,2 @@
+include ':app', ':pluginDemo', ':mylibrary'
+rootProject.name='learn-demox'

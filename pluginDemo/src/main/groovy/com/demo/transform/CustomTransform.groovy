@@ -3,6 +3,7 @@ package com.demo.transform
 import com.android.build.api.transform.*
 import com.android.build.gradle.AppExtension
 import com.android.build.gradle.internal.pipeline.TransformManager
+import com.google.common.collect.Sets
 import javassist.*
 import org.apache.commons.codec.digest.DigestUtils
 import org.apache.commons.io.FileUtils
@@ -10,17 +11,19 @@ import org.gradle.api.Project
 
 class CustomTransform extends Transform {
     private static final String IMPORT_CLASS_PATH = "com.yjj.learnDemox.MyClickManager"
+    private static List<String> sClassHaveDealList = new ArrayList<>()
+    private static ClassPool sClassPool = ClassPool.getDefault()
     private Project mProject
     private Map<String, MethodChecker> lifeMethodMap
     private MethodCodeInjector lifeMethodCodeInjector
     private MethodCodeInjector clickMethodCodeInjector
     private MethodChecker clickMethodChecker
-    private List<String> classHaveDealList = new ArrayList<>()
-    private static ClassPool mPool = ClassPool.getDefault()
+    private boolean isLibrary
 
-    CustomTransform(Project project) {
+    CustomTransform(Project project, boolean isLibrary) {
         super()
         this.mProject = project
+        this.isLibrary = isLibrary
         lifeMethodCodeInjector = new LifeMethodCodeInjectorImpl()
         clickMethodCodeInjector = new ClickCodeInjectorImpl()
         clickMethodChecker = new ViewClickMethodChecker()
@@ -36,7 +39,7 @@ class CustomTransform extends Transform {
 
     @Override
     String getName() {
-        return "ClickTransformImpl"
+        return "LifeMethodTransformImpl"
     }
 
     @Override
@@ -45,8 +48,12 @@ class CustomTransform extends Transform {
     }
 
     @Override
-    Set<? super QualifiedContent.Scope> getScopes() {
-        return TransformManager.SCOPE_FULL_PROJECT
+    Set<QualifiedContent.Scope> getScopes() {
+        if (isLibrary) {
+            return Sets.immutableEnumSet(QualifiedContent.Scope.PROJECT)
+        } else {
+            return TransformManager.SCOPE_FULL_PROJECT
+        }
     }
 
     @Override
@@ -58,9 +65,15 @@ class CustomTransform extends Transform {
     void transform(Context context, Collection<TransformInput> inputs,
         Collection<TransformInput> referencedInputs, TransformOutputProvider outputProvider,
         boolean isIncremental) throws IOException, TransformException, InterruptedException {
-        def android = mProject.extensions.getByType(AppExtension)
-        System.out.println("classHaveDealList " + classHaveDealList)
-        String packageName = android.defaultConfig.applicationId
+        String packageName
+        if (isLibrary) {
+            packageName = mProject.properties.get("packageName")
+            if (packageName == null) {
+                throw new IOException("library must set packageName in gradle.properties")
+            }
+        } else {
+            packageName = mProject.extensions.findByType(AppExtension).defaultConfig.applicationId
+        }
         packageName = packageName.replaceAll('\\.', '/')
         inputs.each { TransformInput input ->
             input.directoryInputs.each { DirectoryInput directoryInput ->
@@ -87,9 +100,9 @@ class CustomTransform extends Transform {
     }
 
     private void injectCode(String path, String packageName, Project project) {
-        mPool.appendClassPath(path)
-        mPool.appendClassPath(project.android.bootClasspath[0].toString())
-        mPool.importPackage(IMPORT_CLASS_PATH)
+        sClassPool.appendClassPath(path)
+        sClassPool.appendClassPath(project.android.bootClasspath[0].toString())
+        sClassPool.importPackage(IMPORT_CLASS_PATH)
         File dir = new File(path)
         if (dir.isDirectory()) {
             dir.eachFileRecurse { File file ->
@@ -104,30 +117,35 @@ class CustomTransform extends Transform {
                     if (className == null || className.isEmpty()) {
                         return
                     }
-                    CtClass ctClass = mPool.getCtClass(className)
+                    CtClass ctClass = sClassPool.getCtClass(className)
                     if (!checkCtClassIsActivityOrFragment(ctClass)) {
                         return
                     }
-
                     if (ctClass.isFrozen()) {
                         ctClass.defrost()
                     }
-                    if (classHaveDealList.contains(className)) {
+                    if (sClassHaveDealList.contains(className)) {
                         ctClass.writeFile(path)
+                        ctClass.detach()
                         return
                     }
-                    classHaveDealList.add(className)
+                    boolean success = false
                     for (CtMethod method : ctClass.getMethods()) {
-                        if (checkOnClickMethod(method)) {
-                            injectMethod(method)
-                        } else if (checkIsLifeMethod(method)) {
+                        if (checkIsLifeMethod(method)) {
                             if (ctClass != method.getDeclaringClass()) {
                                 method = overrideMethod(ctClass, method)
                             }
-                            lifeMethodCodeInjector.inject(method)
+                            try {
+                                lifeMethodCodeInjector.inject(method)
+                                success = true
+                            } catch (Exception e) {
+                                System.out.println("inject error but can ignore" + e)
+                            }
                         }
                     }
-
+                    if (success) {
+                        sClassHaveDealList.add(className)
+                    }
                     ctClass.writeFile(path)
                     ctClass.detach()
                 }
@@ -139,7 +157,7 @@ class CustomTransform extends Transform {
         if (ctClass == null) {
             return false
         }
-        CtClass activity = mPool.getCtClass("android.app.Activity")
+        CtClass activity = sClassPool.getCtClass("android.app.Activity")
         if (ctClass.subclassOf(activity)) {
             return true
         }

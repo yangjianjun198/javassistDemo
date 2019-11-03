@@ -1,9 +1,12 @@
 package com.demo.plugin
 
+import com.android.build.gradle.AppExtension
+import com.android.build.gradle.AppPlugin
+import com.android.build.gradle.LibraryExtension
+import com.android.build.gradle.LibraryPlugin
 import com.demo.transform.CustomTransform
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import com.android.build.gradle.AppExtension
 
 class DemoPlugin implements Plugin<Project> {
 
@@ -14,10 +17,18 @@ class DemoPlugin implements Plugin<Project> {
                 'Must apply \'com.android.application\' or \'com.android.library\' first!');
         }
         System.out.println("DemoPlugin apply")
-        def android = project.extensions.getByType(AppExtension)
-        //注册一个Transform
-        def classTransform = new CustomTransform(project)
-        android.registerTransform(classTransform)
 
+        if (project.plugins.hasPlugin(AppPlugin)) {
+            System.out.println("DemoPlugin app apply")
+            def android = project.extensions.getByType(AppExtension)
+            android.registerTransform(
+                new CustomTransform(project, false))
+        } else if (project.plugins.hasPlugin(LibraryPlugin)) {
+            System.out.println("packageName is Library")
+            def android = project.extensions.findByType(LibraryExtension)
+            android.registerTransform(new CustomTransform(project, true))
+        } else {
+            System.out.println("DemoPlugin other apply")
+        }
     }
 }

@@ -11,11 +11,11 @@ class LifeMethodCodeInjectorImpl implements MethodCodeInjector {
     @Override
     void inject(CtMethod method) {
         String methodName = "\"" + method.name + "\""
-        String methodCode = "com.yjj.learnDemox.LifeMethodRecorder.getInstance().start(\$0," +
+        String methodCode = "com.yjj.lifemethodlib.LifeMethodRecorder.getInstance().start(\$0," +
             methodName +
             ");"
         method.insertBefore(methodCode)
-        method.insertAfter("com.yjj.learnDemox.LifeMethodRecorder.getInstance().end(\$0);")
+        method.insertAfter("com.yjj.lifemethodlib.LifeMethodRecorder.getInstance().end(\$0);")
     }
 }
 

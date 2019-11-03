@@ -1,2 +1,2 @@
-include ':app', ':pluginDemo', ':mylibrary'
+include ':app', ':pluginDemo', ':mylibrary', ':lifemethodlib'
 rootProject.name='learn-demox'
